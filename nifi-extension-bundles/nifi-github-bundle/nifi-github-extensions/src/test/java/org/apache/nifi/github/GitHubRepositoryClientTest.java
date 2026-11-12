@@ -19,11 +19,14 @@ package org.apache.nifi.github;
 
 import org.junit.jupiter.api.Test;
 import org.kohsuke.github.GHCommit;
+import org.kohsuke.github.GHCompare;
 import org.kohsuke.github.GHFileNotFoundException;
 import org.kohsuke.github.GHUser;
 import org.kohsuke.github.GitUser;
 
 import java.io.IOException;
+import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
@@ -83,5 +86,54 @@ class GitHubRepositoryClientTest {
 
         final String author = GitHubRepositoryClient.resolveCommitAuthor(ghCommit, shortInfo);
         assertEquals("unknown", author);
+    }
+
+    @Test
+    void testGetChangedPathsRelativeToRepositoryPath() {
+        final GHCompare compare = mockCompare(GHCompare.Status.ahead,
+                mockFile("flows/bucket/changed.json", null),
+                mockFile("flows/bucket/renamed.json", "flows/bucket/original.json"),
+                mockFile("README.md", null));
+
+        assertEquals(Optional.of(Set.of("bucket/changed.json", "bucket/renamed.json", "bucket/original.json")),
+                GitHubRepositoryClient.getChangedPaths(compare, "flows"));
+    }
+
+    @Test
+    void testGetChangedPathsWithoutRepositoryPath() {
+        final GHCompare compare = mockCompare(GHCompare.Status.identical);
+
+        assertEquals(Optional.of(Set.of()), GitHubRepositoryClient.getChangedPaths(compare, null));
+    }
+
+    @Test
+    void testGetChangedPathsUnknownWhenHistoryDiverged() {
+        final GHCompare compare = mockCompare(GHCompare.Status.diverged, mockFile("bucket/changed.json", null));
+
+        assertEquals(Optional.empty(), GitHubRepositoryClient.getChangedPaths(compare, null));
+    }
+
+    @Test
+    void testGetChangedPathsUnknownWhenFileListMayBeTruncated() {
+        final GHCommit.File[] files = new GHCommit.File[GitHubRepositoryClient.COMPARE_FILES_LIMIT];
+        for (int i = 0; i < files.length; i++) {
+            files[i] = mockFile("bucket/flow-" + i + ".json", null);
+        }
+
+        assertEquals(Optional.empty(), GitHubRepositoryClient.getChangedPaths(mockCompare(GHCompare.Status.ahead, files), null));
+    }
+
+    private static GHCompare mockCompare(final GHCompare.Status status, final GHCommit.File... files) {
+        final GHCompare compare = mock(GHCompare.class);
+        when(compare.getStatus()).thenReturn(status);
+        when(compare.getFiles()).thenReturn(files);
+        return compare;
+    }
+
+    private static GHCommit.File mockFile(final String fileName, final String previousFileName) {
+        final GHCommit.File file = mock(GHCommit.File.class);
+        when(file.getFileName()).thenReturn(fileName);
+        when(file.getPreviousFilename()).thenReturn(previousFileName);
+        return file;
     }
 }
